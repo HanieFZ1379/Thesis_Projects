@@ -1,3 +1,4 @@
+````bibtex
 # MCLD [![arXiv](https://img.shields.io/badge/arXiv-2503.15686-b31b1b.svg)](https://arxiv.org/abs/2503.15686)
 
 > **Multi-focal Conditioned Latent Diffusion for Person Image Synthesis** <br>
@@ -34,10 +35,25 @@
 ```
 
 ## Preparation
-
-### Install Environment
+create virtual environment with python3.8:
 ```
+python3.8 -m venv .venv
+```
+### Install Environment
+add ```torchaudio==2.0.2``` to requirements.txt file.
+```
+pip install wheel
+pip install importlib-metadata==4.6.0
+pip install packaging==23.0
+!pip install kaggle
 pip install -r requirements.txt
+pip install peft
+pip install xformers==0.0.20
+pip install bitsandbytes==0.39.1
+```
+also install detecton2 via :
+```
+python -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
 ```
 ### Download pretrained Models
 
@@ -128,3 +144,36 @@ MCLD allows flexible editing since it decompose the human appearance and identit
       url={https://arxiv.org/abs/2503.15686}, 
 }
 ```
+# Diagaram of Architecture:
+```
+Input noisy latent (+ optional aux input)
+        │
+   Conv3D (conv_in)
+        │
+   + pose_cond_fea (اختیاری)
+        │
+   ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+   Down Blocks (CrossAttnDownBlock3D ×3, DownBlock3D ×1)
+        │ (skip connections ذخیره می‌شوند)
+   ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓
+   Mid Block (Cross Attention + ResNet)
+        │ (+ optional mid_block residual)
+   ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+   Up Blocks (UpBlock3D ×1, CrossAttnUpBlock3D ×3)
+        │ (skip connections اضافه می‌شوند)
+   ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑
+   GroupNorm → SiLU → Conv3D
+        │
+Output latent
+
+```
+@misc{liu2025multifocalconditionedlatentdiffusion,
+      title={Multi-focal Conditioned Latent Diffusion for Person Image Synthesis}, 
+      author={Jiaqi Liu and Jichao Zhang and Paolo Rota and Nicu Sebe},
+      year={2025},
+      eprint={2503.15686},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2503.15686}, 
+}
+````
