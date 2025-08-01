@@ -15,6 +15,8 @@ from diffusers.utils import SAFETENSORS_WEIGHTS_NAME, WEIGHTS_NAME, BaseOutput, 
 from safetensors.torch import load_file
 
 from .unet_3d import UNet3DConditionModel, UNet3DConditionOutput
+from src.models.dual_attention import DualAttnTransformerBlock
+import torch.nn.functional as F
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -116,7 +118,23 @@ class UNet3DMultiConditionModel(UNet3DConditionModel):
             input_aux=input_aux,
         )
 
+        # Add Residual block
+        self.pose_to_mid_adapter = nn.Conv3d(320, 1280, kernel_size=1)
+        self.pose_scale = nn.Parameter(torch.tensor(0.1))
+        # # اضافه کردن نسخه جدید:
+        # self.pose_adapters = nn.ModuleList([
+        #     nn.Conv3d(320, 320, kernel_size=1),   # stage 0
+        #     nn.Conv3d(320, 640, kernel_size=1),   # stage 1
+        #     nn.Conv3d(320, 1280, kernel_size=1),  # stage 2
+        #     nn.Conv3d(320, 1280, kernel_size=1),  # mid block
+        # ])
 
+        # self.pose_scales = nn.ParameterList([
+        #     nn.Parameter(torch.tensor(0.01)),
+        #     nn.Parameter(torch.tensor(0.01)),
+        #     nn.Parameter(torch.tensor(0.01)),
+        #     nn.Parameter(torch.tensor(0.01)),
+        # ])
     def forward(
         self,
         sample: torch.FloatTensor,
@@ -217,6 +235,7 @@ class UNet3DMultiConditionModel(UNet3DConditionModel):
         # down
         down_block_res_samples = (sample,)
         for downsample_block in self.down_blocks:
+        # for idx, downsample_block in enumerate(self.down_blocks):
             if (
                 hasattr(downsample_block, "has_cross_attention")
                 and downsample_block.has_cross_attention
@@ -234,8 +253,17 @@ class UNet3DMultiConditionModel(UNet3DConditionModel):
                     encoder_hidden_states=down_encoder_hidden_states,
                 )
 
+            # # Add Residual block
+            # # تزریق pose در هر مرحله down
+            # if pose_cond_fea is not None and idx < len(self.pose_adapters) - 1:
+            #     pose_resized = F.interpolate(pose_cond_fea, size=sample.shape[-3:], mode='trilinear', align_corners=False)
+            #     pose_feat = self.pose_adapters[idx](pose_resized)
+            #     # --- Normalize + Clamp برای جلوگیری از NaN ---
+            #     pose_feat = F.layer_norm(pose_feat, pose_feat.shape[1:])
+            #     pose_feat = torch.clamp(pose_feat, -1.0, 1.0)
+            #     sample = sample + self.pose_scales[idx] * pose_feat
             down_block_res_samples += res_samples
-
+        # اگر residual های اضافی داده شده باشه (مثلاً از ref-UNet دیگر)، به feature map هر بلوک اضافه می‌کنه.
         if down_block_additional_residuals is not None:
             new_down_block_res_samples = ()
 
@@ -249,6 +277,44 @@ class UNet3DMultiConditionModel(UNet3DConditionModel):
 
             down_block_res_samples = new_down_block_res_samples
 
+        # B, C, T, H, W = sample.shape
+        # query = sample.permute(0, 2, 3, 4, 1).reshape(B, -1, C)  # (B, T*H*W, C)                                       # همون latent noisy sample
+
+        # # مرحله 1: آماده‌سازی embeddingها
+        # appearance_emb = mid_encoder_hidden_states          # embedding ظاهر (مثلاً از CLIP)
+        # pose_emb = pose_cond_fea.permute(0, 2, 3, 4, 1).reshape(B, -1, C)                            # embedding حالت (مثلاً از DensePose یا PoseGuider)
+        # pose_emb = self.pose_emb_projector(pose_emb)
+        # pose_emb_transposed = pose_emb.transpose(1, 2)  # [B, 768, 1024]
+        # pose_emb_reduced = self.pose_proj(pose_emb_transposed)  # [B, 768, 18]
+        # pose_emb_final = pose_emb_reduced.transpose(1, 2)  # [B, 18, 768]
+        # # B, C, _ = pose_emb.shape
+        # # pose_emb = pose_emb.view(B, 18, 768)
+        # print(f'pose_emb:{pose_emb_final.shape}')
+
+        # # مرحله 2: اعمال Dual Attention
+        # # ابعاد باید چک بشه که match باشن: (B, T*H*W, C) یا (B, L, D)
+        # dual_attn = DualAttnTransformerBlock(
+        #             dim=query.shape[-1],
+        #             num_attention_heads=8,
+        #             attention_head_dim=64,
+        #             cross_attention_dim=appearance_emb.shape[-1],
+        #             dropout=0.0
+        #         ).to(query.device)
+
+        # fused_emb = dual_attn(
+        #     hidden_states=query,
+        #     encoder_hidden_states=appearance_emb,
+        #     encoder_hidden_states1=appearance_emb,
+        #     encoder_hidden_states2=pose_emb_final
+        # )
+
+
+
+        # # مرحله 3: استفاده از fused_emb به‌جای embedding اصلی
+        # # اگر مدل قبلاً از mid_encoder_hidden_states استفاده می‌کرد، حالا باید fused_emb رو به جای اون بدی
+
+        # # مثلاً:
+        # mid_encoder_hidden_states = fused_emb
         # mid
         sample = self.mid_block(
             sample,
@@ -259,7 +325,21 @@ class UNet3DMultiConditionModel(UNet3DConditionModel):
 
         if mid_block_additional_residual is not None:
             sample = sample + mid_block_additional_residual
+        
+        # Add Residual block
+        if pose_cond_fea is not None:
+            pose_adapted = self.pose_to_mid_adapter(pose_cond_fea)
+            pose_adapted = F.interpolate(pose_adapted, size=sample.shape[-3:], mode='trilinear', align_corners=False)
+            sample = sample + self.pose_scale * pose_adapted
+        # # تزریق pose در mid
+        # if pose_cond_fea is not None:
+        #     pose_resized = F.interpolate(pose_cond_fea, size=sample.shape[-3:], mode='trilinear', align_corners=False)
+        #     pose_feat = self.pose_adapters[-1](pose_resized)
+        #     # --- Normalize + Clamp ---
+        #     pose_feat = F.layer_norm(pose_feat, pose_feat.shape[1:])
+        #     pose_feat = torch.clamp(pose_feat, -1.0, 1.0)
 
+        #     sample = sample + self.pose_scales[-1] * pose_feat
         # up
         for i, upsample_block in enumerate(self.up_blocks):
             is_final_block = i == len(self.up_blocks) - 1

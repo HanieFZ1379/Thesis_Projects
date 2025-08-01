@@ -18,6 +18,7 @@ from diffusers.utils.torch_utils import randn_tensor
 from einops import rearrange
 from tqdm import tqdm
 from transformers import CLIPImageProcessor
+import torchvision.transforms as transforms
 from diffusers.image_processor import VaeImageProcessor
 import pdb
 
@@ -58,7 +59,15 @@ class Pose2ImagePipeline(DiffusionPipeline):
             scheduler=scheduler,
         )
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-        self.clip_image_processor = CLIPImageProcessor()
+        # self.clip_image_processor = CLIPImageProcessor()
+        # Replace CLIPImageProcessor with DINOv2 preprocessing
+        self.dino_process = transforms.Compose([
+            transforms.Resize([224, 224], interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        # Add projector to match train.py
+        self.clip_projector = torch.nn.Linear(1024, 768).to(device=self._execution_device, dtype=self.image_encoder.dtype)
         self.ref_image_processor = VaeImageProcessor(
             vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True
         )
@@ -271,13 +280,20 @@ class Pose2ImagePipeline(DiffusionPipeline):
 
         # Prepare clip image embeds
         clip_input = clip_image if clip_image is not None else ref_image
-        clip_image = self.clip_image_processor.preprocess(
-            clip_input, return_tensors="pt"
-        ).pixel_values
-        clip_image_embeds = self.image_encoder(
-            clip_image.to(device, dtype=self.image_encoder.dtype)
-        ).image_embeds
-        image_prompt_embeds = clip_image_embeds.unsqueeze(1)
+        clip_image = self.dino_process(clip_input)
+        if clip_image.dim() == 3:  # Ensure batch dimension
+            clip_image = clip_image.unsqueeze(0)
+        dino_outputs = self.image_encoder(clip_image.to(device, dtype=self.image_encoder.dtype))
+        clip_image_embeds = dino_outputs.last_hidden_state.mean(dim=1)  # [bs, 1024]
+        clip_image_embeds = self.clip_projector(clip_image_embeds)  # [bs, 768]
+        image_prompt_embeds = clip_image_embeds.unsqueeze(1)  # [bs, 1, 768]
+        # clip_image = self.clip_image_processor.preprocess(
+        #     clip_input, return_tensors="pt"
+        # ).pixel_values
+        # clip_image_embeds = self.image_encoder(
+        #     clip_image.to(device, dtype=self.image_encoder.dtype)
+        # ).image_embeds
+        # image_prompt_embeds = clip_image_embeds.unsqueeze(1)
         uncond_image_prompt_embeds = torch.zeros_like(image_prompt_embeds)
 
         if do_classifier_free_guidance:
@@ -452,13 +468,20 @@ class Pose2ImagePipeline(DiffusionPipeline):
 
         # Prepare clip image embeds
         clip_input = clip_image 
-        clip_image = self.clip_image_processor.preprocess(
-            clip_input, return_tensors="pt"
-        ).pixel_values
-        clip_image_embeds = self.image_encoder(
-            clip_image.to(device, dtype=self.image_encoder.dtype)
-        ).image_embeds
-        image_prompt_embeds = clip_image_embeds.unsqueeze(1)
+        clip_image = self.dino_process(clip_input)
+        if clip_image.dim() == 3:  # Ensure batch dimension
+            clip_image = clip_image.unsqueeze(0)
+        dino_outputs = self.image_encoder(clip_image.to(device, dtype=self.image_encoder.dtype))
+        clip_image_embeds = dino_outputs.last_hidden_state.mean(dim=1)  # [bs, 1024]
+        clip_image_embeds = self.clip_projector(clip_image_embeds)  # [bs, 768]
+        image_prompt_embeds = clip_image_embeds.unsqueeze(1)  # [bs, 1, 768]
+        # clip_image = self.clip_image_processor.preprocess(
+        #     clip_input, return_tensors="pt"
+        # ).pixel_values
+        # clip_image_embeds = self.image_encoder(
+        #     clip_image.to(device, dtype=self.image_encoder.dtype)
+        # ).image_embeds
+        # image_prompt_embeds = clip_image_embeds.unsqueeze(1)
         uncond_image_prompt_embeds = torch.zeros_like(image_prompt_embeds)
 
         if do_classifier_free_guidance:
