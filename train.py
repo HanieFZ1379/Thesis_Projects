@@ -336,11 +336,15 @@ def main(cfg):
     sched_kwargs.update({"beta_schedule": "scaled_linear"})
     train_noise_scheduler = DDIMScheduler(**sched_kwargs)
     
+    # changes
+    main_device = "cuda:0"
+    aux_device = "cuda:1"
+
     reference_unet = UNet2DConditionModel.from_pretrained(
         cfg.base_model_path,
         subfolder="unet",
         low_cpu_mem_usage=False,
-    ).to(device=cfg.device)
+    ).to(device=main_device)
     denoising_unet = UNet3DMultiConditionModel.from_pretrained_2d(
         cfg.base_model_path,
         "",
@@ -349,14 +353,14 @@ def main(cfg):
             "use_motion_module": False,
             "unet_use_temporal_attention": False,
         },
-    ).to(device=cfg.device)
+    ).to(device=main_device)
     
     denoising_unet = set_ip_adapter(denoising_unet)
 
     if cfg.pose_guider_pretrain:
         pose_guider = PoseGuider(
             conditioning_embedding_channels=320, block_out_channels=(16, 32, 96, 256), conditioning_channels=config.cond_chan,
-        ).to(device=cfg.device)
+        ).to(device=main_device)
         # load pretrained controlnet-openpose params for pose_guider
         controlnet_openpose_state_dict = torch.load(cfg.controlnet_openpose_path)
         state_dict_to_load = {}
@@ -369,7 +373,7 @@ def main(cfg):
     else:
         pose_guider = PoseGuider(
             conditioning_embedding_channels=320,
-        ).to(device=cfg.device)
+        ).to(device=main_device)
 
     # Explictly declare training models
     denoising_unet.requires_grad_(True)
@@ -394,7 +398,7 @@ def main(cfg):
         embedding_dim=image_emb_dim_image_proj,
         output_dim=denoising_unet.config.cross_attention_dim,
         ff_mult=4,
-    ).to(device=cfg.device)
+    ).to(device=main_device)
 
     reference_control_writer = ReferenceAttentionControl(
         reference_unet,
@@ -416,7 +420,7 @@ def main(cfg):
         image_proj_model,
         reference_control_writer,
         reference_control_reader,
-        device=cfg.device
+        device=main_device
     )
     
     if cfg.solver.enable_xformers_memory_efficient_attention:
@@ -434,10 +438,10 @@ def main(cfg):
 
     # Freeze
     vae = AutoencoderKL.from_pretrained(cfg.vae_model_path).to(
-        cfg.device, dtype=weight_dtype)
+        aux_device, dtype=weight_dtype)
     vae.requires_grad_(False)
     image_enc = CLIPVisionModelWithProjection.from_pretrained(
-        cfg.image_encoder_path,).to(dtype=weight_dtype, device=cfg.device)
+        cfg.image_encoder_path,).to(dtype=weight_dtype, device=aux_device)
     image_enc.requires_grad_(False)
     image_proj_model.requires_grad_(True)
     if cfg.solver.scale_lr:
@@ -573,20 +577,142 @@ def main(cfg):
     progress_bar.set_description("Steps")
 
     # here we write the training code
+    # for epoch in range(first_epoch, num_train_epochs):
+    #     train_loss = 0.0
+    #     for step, batch in enumerate(train_dataloader):
+    #         # pdb.set_trace()
+    #         with accelerator.accumulate(net):
+    #             # Convert videos to latent space
+    #             pixel_values = batch["img"].to(weight_dtype)
+    #             with torch.no_grad():
+    #                 # latents = vae.encode(pixel_values).latent_dist.sample()
+    #                 latents = vae.encode(pixel_values.to(aux_device)).latent_dist.sample().to(main_device)
+    #                 latents = latents.unsqueeze(2)  # (b, c, 1, h, w)
+    #                 latents = latents * 0.18215
+
+    #             face_emb = batch["face_emb"].to(weight_dtype)
+                
+    #             noise = torch.randn_like(latents)
+    #             if cfg.noise_offset > 0.0:
+    #                 noise += cfg.noise_offset * torch.randn(
+    #                     (noise.shape[0], noise.shape[1], 1, 1, 1),
+    #                     device=noise.device,
+    #                 )
+
+    #             bsz = latents.shape[0]
+    #             # Sample a random timestep for each video
+    #             timesteps = torch.randint(
+    #                 0,
+    #                 train_noise_scheduler.num_train_timesteps,
+    #                 (bsz,),
+    #                 device=latents.device,
+    #             )
+    #             timesteps = timesteps.long()
+
+    #             tgt_pose_img = batch["tgt_pose"]
+                
+    #             # face mask can directly get from the densepose estimation. Only used in training.
+    #             face_mask = (tgt_pose_img[:, 2, :, :] * 255 == 23 ).unsqueeze(1) + (tgt_pose_img[:, 2, :, :] * 255 == 24 ).unsqueeze(1)
+    #             h_latents = 64
+    #             face_mask = F.interpolate(input=face_mask.to(dtype=torch.float), size=(h_latents, h_latents)) > 0
+    #             tgt_pose_img = tgt_pose_img.unsqueeze(2)  # (bs, 3, 1, 512, 512)
+                
+    #             uncond_fwd = random.random() < cfg.uncond_ratio
+                
+    #             clip_image_list = []
+    #             ref_image_list = []
+    #             clip_image_list2 = []
+                
+    #             for batch_idx, (ref_img, clip_img, clip_img2) in enumerate(
+    #                 zip(
+    #                     batch["ref_img"],
+    #                     batch["clip_images"],
+    #                     batch["clip_images2"],
+    #                 )
+    #             ):
+    #                 if uncond_fwd:
+    #                     clip_image_list.append(torch.zeros_like(clip_img))
+    #                     clip_image_list2.append(torch.zeros_like(clip_img2))
+    #                 else:
+    #                     clip_image_list.append(clip_img)
+    #                     clip_image_list2.append(clip_img2)
+    #                 ref_image_list.append(ref_img)
+                
+    #             with torch.no_grad():
+    #                 ref_img = torch.stack(ref_image_list, dim=0).to(
+    #                     dtype=vae.dtype, device=vae.device
+    #                 )
+    #                 ref_image_latents = vae.encode(
+    #                     ref_img
+    #                 ).latent_dist.sample()  # (bs, d, 64, 64)
+    #                 ref_image_latents = ref_image_latents * 0.18215
+
+    #                 clip_img = torch.stack(clip_image_list, dim=0).to(
+    #                     dtype=image_enc.dtype, device=image_enc.device
+    #                 )
+                    
+    #                 # generate random noise of clip, to improve the robustness.
+    #                 if random.random() < 0.1:
+    #                     clip_img = torch.zeros(clip_img.shape, dtype=clip_img.dtype, device=clip_img.device)
+    #                 clip_image_embeds = image_enc(
+    #                     clip_img.to(cfg.device, dtype=weight_dtype)
+    #                 ).image_embeds
+    #                 image_prompt_embeds = clip_image_embeds.unsqueeze(1)  # (bs, 1, d)
+                    
+    #                 random_clip_embs = generate_clip_random_noise(bs=clip_image_embeds.shape[0], 
+    #                                                               device=clip_image_embeds.device, 
+    #                                                               dtype=clip_image_embeds.dtype)
+    #                 image_prompt_embeds = image_prompt_embeds + random_clip_embs
+                    
+    #                 clip_img2 = torch.stack(clip_image_list2, dim=0).to(
+    #                     dtype=image_enc.dtype, device=image_enc.device
+    #                 )
+    #                 clip_image_embeds2 = image_enc(
+    #                     clip_img2.to(cfg.device, dtype=weight_dtype)
+    #                 ).image_embeds
+    #                 image_prompt_embeds2 = clip_image_embeds2.unsqueeze(1)  # (bs, 1, d)
+                    
+    #             # add noise
+    #             noisy_latents = train_noise_scheduler.add_noise(
+    #                 latents, noise, timesteps
+    #             )
+
+    #             # Get the target for loss depending on the prediction type
+    #             if train_noise_scheduler.prediction_type == "epsilon":
+    #                 target = noise
+    #             elif train_noise_scheduler.prediction_type == "v_prediction":
+    #                 target = train_noise_scheduler.get_velocity(
+    #                     latents, noise, timesteps
+    #                 )
+    #             else:
+    #                 raise ValueError(
+    #                     f"Unknown prediction type {train_noise_scheduler.prediction_type}"
+    #                 )
+
+    #             model_pred = net(
+    #                 noisy_latents,
+    #                 timesteps,
+    #                 ref_image_latents,
+    #                 face_emb,
+    #                 image_prompt_embeds,
+    #                 clip_image_embeds2=image_prompt_embeds2,
+    #                 pose_img=tgt_pose_img,
+    #                 uncond_fwd=uncond_fwd,
+    #             )
     for epoch in range(first_epoch, num_train_epochs):
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
-            # pdb.set_trace()
             with accelerator.accumulate(net):
-                # Convert videos to latent space
+                # تبدیل تصویر به فضای latent با VAE روی GPU1
                 pixel_values = batch["img"].to(weight_dtype)
                 with torch.no_grad():
-                    latents = vae.encode(pixel_values).latent_dist.sample()
+                    latents = vae.encode(pixel_values.to(aux_device)).latent_dist.sample().to(main_device)
                     latents = latents.unsqueeze(2)  # (b, c, 1, h, w)
                     latents = latents * 0.18215
 
                 face_emb = batch["face_emb"].to(weight_dtype)
-                
+
+                # تولید نویز
                 noise = torch.randn_like(latents)
                 if cfg.noise_offset > 0.0:
                     noise += cfg.noise_offset * torch.randn(
@@ -595,35 +721,27 @@ def main(cfg):
                     )
 
                 bsz = latents.shape[0]
-                # Sample a random timestep for each video
                 timesteps = torch.randint(
                     0,
                     train_noise_scheduler.num_train_timesteps,
                     (bsz,),
                     device=latents.device,
-                )
-                timesteps = timesteps.long()
+                ).long()
 
                 tgt_pose_img = batch["tgt_pose"]
-                
-                # face mask can directly get from the densepose estimation. Only used in training.
-                face_mask = (tgt_pose_img[:, 2, :, :] * 255 == 23 ).unsqueeze(1) + (tgt_pose_img[:, 2, :, :] * 255 == 24 ).unsqueeze(1)
+
+                # ساخت ماسک صورت
+                face_mask = (tgt_pose_img[:, 2, :, :] * 255 == 23).unsqueeze(1) + \
+                            (tgt_pose_img[:, 2, :, :] * 255 == 24).unsqueeze(1)
                 h_latents = 64
-                face_mask = F.interpolate(input=face_mask.to(dtype=torch.float), size=(h_latents, h_latents)) > 0
+                face_mask = F.interpolate(face_mask.to(dtype=torch.float), size=(h_latents, h_latents)) > 0
                 tgt_pose_img = tgt_pose_img.unsqueeze(2)  # (bs, 3, 1, 512, 512)
-                
+
                 uncond_fwd = random.random() < cfg.uncond_ratio
-                
-                clip_image_list = []
-                ref_image_list = []
-                clip_image_list2 = []
-                
-                for batch_idx, (ref_img, clip_img, clip_img2) in enumerate(
-                    zip(
-                        batch["ref_img"],
-                        batch["clip_images"],
-                        batch["clip_images2"],
-                    )
+
+                clip_image_list, ref_image_list, clip_image_list2 = [], [], []
+                for ref_img, clip_img, clip_img2 in zip(
+                    batch["ref_img"], batch["clip_images"], batch["clip_images2"]
                 ):
                     if uncond_fwd:
                         clip_image_list.append(torch.zeros_like(clip_img))
@@ -632,69 +750,55 @@ def main(cfg):
                         clip_image_list.append(clip_img)
                         clip_image_list2.append(clip_img2)
                     ref_image_list.append(ref_img)
-                
+
                 with torch.no_grad():
-                    ref_img = torch.stack(ref_image_list, dim=0).to(
-                        dtype=vae.dtype, device=vae.device
-                    )
-                    ref_image_latents = vae.encode(
-                        ref_img
-                    ).latent_dist.sample()  # (bs, d, 64, 64)
+                    # Ref image encoding با VAE روی GPU1
+                    ref_img = torch.stack(ref_image_list, dim=0).to(dtype=vae.dtype, device=aux_device)
+                    ref_image_latents = vae.encode(ref_img).latent_dist.sample().to(main_device)
                     ref_image_latents = ref_image_latents * 0.18215
 
-                    clip_img = torch.stack(clip_image_list, dim=0).to(
-                        dtype=image_enc.dtype, device=image_enc.device
-                    )
-                    
-                    # generate random noise of clip, to improve the robustness.
+                    # Clip image embeddings با CLIP روی GPU1
+                    clip_img = torch.stack(clip_image_list, dim=0).to(dtype=image_enc.dtype, device=aux_device)
                     if random.random() < 0.1:
-                        clip_img = torch.zeros(clip_img.shape, dtype=clip_img.dtype, device=clip_img.device)
-                    clip_image_embeds = image_enc(
-                        clip_img.to(cfg.device, dtype=weight_dtype)
-                    ).image_embeds
-                    image_prompt_embeds = clip_image_embeds.unsqueeze(1)  # (bs, 1, d)
-                    
-                    random_clip_embs = generate_clip_random_noise(bs=clip_image_embeds.shape[0], 
-                                                                  device=clip_image_embeds.device, 
-                                                                  dtype=clip_image_embeds.dtype)
-                    image_prompt_embeds = image_prompt_embeds + random_clip_embs
-                    
-                    clip_img2 = torch.stack(clip_image_list2, dim=0).to(
-                        dtype=image_enc.dtype, device=image_enc.device
-                    )
-                    clip_image_embeds2 = image_enc(
-                        clip_img2.to(cfg.device, dtype=weight_dtype)
-                    ).image_embeds
-                    image_prompt_embeds2 = clip_image_embeds2.unsqueeze(1)  # (bs, 1, d)
-                    
-                # add noise
-                noisy_latents = train_noise_scheduler.add_noise(
-                    latents, noise, timesteps
-                )
+                        clip_img = torch.zeros_like(clip_img)
+                    clip_image_embeds = image_enc(clip_img.to(aux_device, dtype=weight_dtype)).image_embeds.to(main_device)
+                    image_prompt_embeds = clip_image_embeds.unsqueeze(1)
 
-                # Get the target for loss depending on the prediction type
+                    random_clip_embs = generate_clip_random_noise(
+                        bs=clip_image_embeds.shape[0],
+                        device=main_device,
+                        dtype=clip_image_embeds.dtype
+                    )
+                    image_prompt_embeds = image_prompt_embeds + random_clip_embs
+
+                    # Clip image2 embeddings
+                    clip_img2 = torch.stack(clip_image_list2, dim=0).to(dtype=image_enc.dtype, device=aux_device)
+                    clip_image_embeds2 = image_enc(clip_img2.to(aux_device, dtype=weight_dtype)).image_embeds.to(main_device)
+                    image_prompt_embeds2 = clip_image_embeds2.unsqueeze(1)
+
+                # افزودن نویز
+                noisy_latents = train_noise_scheduler.add_noise(latents, noise, timesteps)
+
+                # تعیین target برای loss
                 if train_noise_scheduler.prediction_type == "epsilon":
                     target = noise
                 elif train_noise_scheduler.prediction_type == "v_prediction":
-                    target = train_noise_scheduler.get_velocity(
-                        latents, noise, timesteps
-                    )
+                    target = train_noise_scheduler.get_velocity(latents, noise, timesteps)
                 else:
-                    raise ValueError(
-                        f"Unknown prediction type {train_noise_scheduler.prediction_type}"
-                    )
+                    raise ValueError(f"Unknown prediction type {train_noise_scheduler.prediction_type}")
 
+                # اجرای مدل روی GPU0
                 model_pred = net(
                     noisy_latents,
                     timesteps,
                     ref_image_latents,
-                    face_emb,
+                    face_emb.to(main_device),
                     image_prompt_embeds,
                     clip_image_embeds2=image_prompt_embeds2,
-                    pose_img=tgt_pose_img,
+                    pose_img=tgt_pose_img.to(main_device),
                     uncond_fwd=uncond_fwd,
-                )
-
+                ) 
+                # end of changes 1
                 if cfg.snr_gamma == 0:
                     loss = F.mse_loss(
                         model_pred.float(), target.float(), reduction="mean"
