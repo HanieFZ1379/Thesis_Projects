@@ -1,5 +1,5 @@
 data:
-  train_bs: 6
+  train_bs: 4
   val_bs: 8
   num_processes: 2
   train_width: 512
@@ -16,7 +16,7 @@ data:
   
 
 solver:
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 3
   mixed_precision: 'fp16'
   enable_xformers_memory_efficient_attention: True
   gradient_checkpointing: True
