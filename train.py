@@ -770,8 +770,8 @@ def main(cfg):
                     clip_img = torch.stack(clip_image_list, dim=0).to(dtype=image_enc.dtype, device=aux_device)
                     if random.random() < 0.1:
                         clip_img = torch.zeros_like(clip_img)
-                    clip_image_embeds = image_enc(clip_img.to(aux_device, dtype=weight_dtype)).image_embeds.to(main_device)
-                    image_prompt_embeds = clip_image_embeds.unsqueeze(1)
+                    clip_image_embeds = image_enc(clip_img).image_embeds
+                    image_prompt_embeds = clip_image_embeds.unsqueeze(1).to(aux_device)
 
                     random_clip_embs = generate_clip_random_noise(
                         bs=clip_image_embeds.shape[0],
@@ -782,8 +782,8 @@ def main(cfg):
 
                     # Clip image2 embeddings
                     clip_img2 = torch.stack(clip_image_list2, dim=0).to(dtype=image_enc.dtype, device=aux_device)
-                    clip_image_embeds2 = image_enc(clip_img2.to(aux_device, dtype=weight_dtype)).image_embeds.to(main_device)
-                    image_prompt_embeds2 = clip_image_embeds2.unsqueeze(1)
+                    clip_image_embeds2 = image_enc(clip_img2).image_embeds
+                    image_prompt_embeds2 = clip_image_embeds2.unsqueeze(1).to(aux_device)
 
                 # افزودن نویز
                 noisy_latents = train_noise_scheduler.add_noise(latents, noise, timesteps)
