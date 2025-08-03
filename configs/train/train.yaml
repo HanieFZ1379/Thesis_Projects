@@ -9,7 +9,7 @@ data:
   texture_clip_condition: False
   texture_unet_condition: True
   #root_dir: "dataset/fashion/"
-  root_dir: '/kaggle/input/dataset-deepfashion/fashion'
+  root_dir: '/kaggle/input/dataset-deepfashion/fashion/'
   pose_type: 'densepose'
   clip_type: 'whole_body'
   use_face_emb: True
