@@ -109,7 +109,7 @@ class InstanceNet(nn.Module):
             self.reference_unet(
                     ref_image_latents.to(aux_device),
                     timesteps.to(aux_device),
-                    encoder_hidden_states=image_prompt_embeds.to(aux_device)
+                    encoder_hidden_states=clip_image_embeds.to(aux_device)
                 ).to(main_device)
 
             self.reference_control_reader.update(self.reference_control_writer)
@@ -802,8 +802,8 @@ def main(cfg):
                     timesteps,
                     ref_image_latents,
                     face_emb.to(main_device),
-                    image_prompt_embeds,
-                    clip_image_embeds2=image_prompt_embeds2,
+                    image_prompt_embeds.to(aux_device),
+                    clip_image_embeds2=image_prompt_embeds2.to(aux_device),
                     pose_img=tgt_pose_img.to(main_device),
                     uncond_fwd=uncond_fwd,
                 ) 
