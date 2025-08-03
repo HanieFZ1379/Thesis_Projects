@@ -775,7 +775,7 @@ def main(cfg):
 
                     random_clip_embs = generate_clip_random_noise(
                         bs=clip_image_embeds.shape[0],
-                        device=main_device,
+                        device=aux_device,  # cuda:1
                         dtype=clip_image_embeds.dtype
                     )
                     image_prompt_embeds = image_prompt_embeds + random_clip_embs
