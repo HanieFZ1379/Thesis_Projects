@@ -97,12 +97,21 @@ class InstanceNet(nn.Module):
         # print("aa", ref_image_latents.shape, noisy_latents.shape)
         if not uncond_fwd:
             ref_timesteps = torch.zeros_like(timesteps)
+            # self.reference_unet(
+            #     ref_image_latents,
+            #     ref_timesteps,
+            #     encoder_hidden_states=clip_image_embeds,
+            #     return_dict=False,
+            # )
+            main_device = "cuda:0"
+            aux_device = "cuda:1"
+
             self.reference_unet(
-                ref_image_latents,
-                ref_timesteps,
-                encoder_hidden_states=clip_image_embeds,
-                return_dict=False,
-            )
+                    ref_image_latents.to(aux_device),
+                    timesteps.to(aux_device),
+                    encoder_hidden_states=image_prompt_embeds.to(aux_device)
+                ).to(main_device)
+
             self.reference_control_reader.update(self.reference_control_writer)
         
         face_tokens = self.image_proj_model(face_pretrained_embeds)
@@ -344,7 +353,7 @@ def main(cfg):
         cfg.base_model_path,
         subfolder="unet",
         low_cpu_mem_usage=False,
-    ).to(device=main_device)
+    ).to(device=aux_device)
     denoising_unet = UNet3DMultiConditionModel.from_pretrained_2d(
         cfg.base_model_path,
         "",
