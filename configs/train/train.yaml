@@ -8,7 +8,8 @@ data:
     - "./data/fashion_meta.json"
   texture_clip_condition: False
   texture_unet_condition: True
-  root_dir: "dataset/fashion/"
+  #root_dir: "dataset/fashion/"
+  root_dir: '/kaggle/input/dataset-deepfashion/fashion'
   pose_type: 'densepose'
   clip_type: 'whole_body'
   use_face_emb: True
@@ -46,15 +47,18 @@ noise_scheduler_kwargs:
   clip_sample:         false
 
 # base_model_path: './pretrained_weights/sd-image-variations-diffusers'
-base_model_path: './pretrained_weights/stable-diffusion-v1-5/'
-vae_model_path: './pretrained_weights/sd-vae-ft-mse'
+#base_model_path: './pretrained_weights/stable-diffusion-v1-5/'
+base_model_path: '/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/stable-diffusion-v1-5'
+vae_model_path: '/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/sd-vae-ft-mse'
 # image_encoder_path: './pretrained_weights/sd-image-variations-diffusers/image_encoder'
-image_encoder_path: './pretrained_weights/image_encoder'
-controlnet_openpose_path: './pretrained_weights/control_v11p_sd15_seg/diffusion_pytorch_model.bin'
+# image_encoder_path: './pretrained_weights/image_encoder'
+image_encoder_path: '/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/image_encoder'
+# controlnet_openpose_path: './pretrained_weights/control_v11p_sd15_seg/diffusion_pytorch_model.bin'
+controlnet_openpose_path: '/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/control_v11p_sd15_seg/diffusion_pytorch_model.bin'
 
 # here for validation
-pretrained_base_model_path: "./pretrained_weights/stable-diffusion-v1-5/"
-pretrained_vae_path: "./pretrained_weights/sd-vae-ft-mse"
+pretrained_base_model_path: "/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/stable-diffusion-v1-5"
+pretrained_vae_path: "/kaggle/input/mcld_models/pytorch/default/1/pretrained_weights/sd-vae-ft-mse"
 inference_config: "./configs/inference/inference_v3.yaml"
 
 

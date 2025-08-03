@@ -267,8 +267,7 @@ def log_validation(
         canvas.paste(pose_image_pil, (w *2, jdx*h))
         canvas.paste(res_image_pil_1, (w * 3, jdx*h))
         canvas.paste(gt_image_pil, (w * 4, jdx*h))
-    # save_dir = "./metadata/" + net_name + '/'
-    save_dir = "/kaggle/working/metadata/" + net_name + '/'
+    save_dir = "./metadata/" + net_name + '/'
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
     canvas.save(save_dir + "image_{}.png".format(num_iters))
@@ -311,9 +310,9 @@ def main(cfg):
         seed_everything(cfg.seed)
 
     exp_name = cfg.exp_name
-    # save_dir = f"{cfg.output_dir}/{exp_name}"
-    # if accelerator.is_main_process and not os.path.exists(save_dir):
-    #     os.makedirs(save_dir)
+    save_dir = f"{cfg.output_dir}/{exp_name}"
+    if accelerator.is_main_process and not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
     if cfg.weight_dtype == "fp16":
         weight_dtype = torch.float16
@@ -548,22 +547,22 @@ def main(cfg):
     first_epoch = 0
 
     # Potentially load in the weights and states from a previous save
-    # if cfg.resume_from_checkpoint:
-    #     if cfg.resume_from_checkpoint != "latest":
-    #         resume_dir = cfg.resume_from_checkpoint
-    #     else:
-    #         resume_dir = save_dir
-    #     # Get the most recent checkpoint
-    #     dirs = os.listdir(resume_dir)
-    #     dirs = [d for d in dirs if d.startswith("checkpoint")]
-    #     dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
-    #     path = dirs[-1]
-    #     accelerator.load_state(os.path.join(resume_dir, path))
-    #     accelerator.print(f"Resuming from checkpoint {path}")
-    #     global_step = int(path.split("-")[1])
+    if cfg.resume_from_checkpoint:
+        if cfg.resume_from_checkpoint != "latest":
+            resume_dir = cfg.resume_from_checkpoint
+        else:
+            resume_dir = save_dir
+        # Get the most recent checkpoint
+        dirs = os.listdir(resume_dir)
+        dirs = [d for d in dirs if d.startswith("checkpoint")]
+        dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+        path = dirs[-1]
+        accelerator.load_state(os.path.join(resume_dir, path))
+        accelerator.print(f"Resuming from checkpoint {path}")
+        global_step = int(path.split("-")[1])
 
-    #     first_epoch = global_step // num_update_steps_per_epoch
-    #     resume_step = global_step % num_update_steps_per_epoch
+        first_epoch = global_step // num_update_steps_per_epoch
+        resume_step = global_step % num_update_steps_per_epoch
 
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(
@@ -748,11 +747,11 @@ def main(cfg):
                 global_step += 1
                 accelerator.log({"train_loss": train_loss}, step=global_step)
                 train_loss = 0.0
-                # if global_step % cfg.checkpointing_steps == 0:
-                    # if accelerator.is_main_process:
-                    #     save_path = os.path.join(save_dir, f"checkpoint-{global_step}")
-                    #     delete_additional_ckpt(save_dir, 1)
-                    #     accelerator.save_state(save_path)
+                if global_step % cfg.checkpointing_steps == 0:
+                    if accelerator.is_main_process:
+                        save_path = os.path.join(save_dir, f"checkpoint-{global_step}")
+                        delete_additional_ckpt(save_dir, 1)
+                        accelerator.save_state(save_path)
 
                 # log validation
                 if (global_step - 1) % cfg.val.validation_steps == 0:
@@ -783,39 +782,39 @@ def main(cfg):
                 break
 
         # save model after each epoch
-        # if (
-        #     epoch + 1
-        # ) % cfg.save_model_epoch_interval == 0 and accelerator.is_main_process:
-        #     if not cfg.no_save:
-        #         unwrap_net = accelerator.unwrap_model(net)
-        #         save_checkpoint(
-        #             unwrap_net.reference_unet,
-        #             save_dir,
-        #             "reference_unet",
-        #             global_step,
-        #             total_limit=3,
-        #         )
-        #         save_checkpoint(
-        #             unwrap_net.denoising_unet,
-        #             save_dir,
-        #             "denoising_unet",
-        #             global_step,
-        #             total_limit=3,
-        #         )
-        #         save_checkpoint(
-        #             unwrap_net.pose_guider,
-        #             save_dir,
-        #             "pose_guider",
-        #             global_step,
-        #             total_limit=3,
-        #         )
-        #         save_checkpoint(
-        #             unwrap_net.image_proj_model,
-        #             save_dir,
-        #             "image_proj_model",
-        #             global_step,
-        #             total_limit=3,
-        #         )
+        if (
+            epoch + 1
+        ) % cfg.save_model_epoch_interval == 0 and accelerator.is_main_process:
+            if not cfg.no_save:
+                unwrap_net = accelerator.unwrap_model(net)
+                save_checkpoint(
+                    unwrap_net.reference_unet,
+                    save_dir,
+                    "reference_unet",
+                    global_step,
+                    total_limit=3,
+                )
+                save_checkpoint(
+                    unwrap_net.denoising_unet,
+                    save_dir,
+                    "denoising_unet",
+                    global_step,
+                    total_limit=3,
+                )
+                save_checkpoint(
+                    unwrap_net.pose_guider,
+                    save_dir,
+                    "pose_guider",
+                    global_step,
+                    total_limit=3,
+                )
+                save_checkpoint(
+                    unwrap_net.image_proj_model,
+                    save_dir,
+                    "image_proj_model",
+                    global_step,
+                    total_limit=3,
+                )
 
 
     # Create the pipeline using the trained modules and save it.

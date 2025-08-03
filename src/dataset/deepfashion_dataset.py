@@ -150,13 +150,13 @@ class DeepFashionBaseline(DeepFashion):
         pose_img = Image.open(pose_path)
         
         ref_face_emb = None
-        ref_clip_input = texture_img if self.texture_clip_condition else img_input # image_input
-        ref_unet_input = texture_img if self.texture_unet_condition else img_input # texture map image
+        ref_clip_input = texture_img if self.texture_clip_condition else img_input
+        ref_unet_input = texture_img if self.texture_unet_condition else img_input
 
-        img_gt = self.transform(img_gt_.resize((512, 512))) # target image 
+        img_gt = self.transform(img_gt_.resize((512, 512)))
         # add for inpput parts 
         
-        ref_img = self.transform(ref_unet_input) # texture map image
+        ref_img = self.transform(ref_unet_input)
         img_input_ = self.transform(img_input.resize((512, 512)))
         pose_image = self.base_transform(pose_img.resize((512, 512)))
         clip_origin_image = self.base_transform(ref_clip_input)
@@ -194,7 +194,7 @@ class DeepFashionBaseline(DeepFashion):
             sample["face_emb"] = ref_face_emb
             
         if self.double_clip:
-            double_clip = img_input if self.texture_clip_condition else texture_img # texture_img
+            double_clip = img_input if self.texture_clip_condition else texture_img
             if self.use_dino:
                 clip_image2 = self.dino_preprocess(double_clip)
             else:
@@ -202,13 +202,10 @@ class DeepFashionBaseline(DeepFashion):
             sample["clip_images2"] = clip_image2
             origin_clip2 = self.base_transform(double_clip)
             sample["clip_origin2"] = origin_clip2
-        # clip_images = embeding of img_input , 
-        # clip_origin = img_input
-        # clip_images2 = embeding of texture map image
-        # clip_origin2 = texture map image
+        
         return sample
 
-def get_deepfashion_dataset(cfg, subset_size=None, **kargs):
+def get_deepfashion_dataset(cfg, **kargs):
 
     train_dataset = DeepFashionBaseline(
         root_dir= cfg.data.root_dir,
@@ -232,19 +229,7 @@ def get_deepfashion_dataset(cfg, subset_size=None, **kargs):
         clip_cond_type=cfg.data.clip_type,
         **kargs,
     )
-    if subset_size:
-        # Sample a subset of the dataset, for example, taking a fraction of the dataset
-        total_train_size = len(train_dataset)
-        subset_train_size = int(total_train_size * subset_size)
-        train_dataset = torch.utils.data.Subset(train_dataset, range(subset_train_size))
-
-        total_val_size = len(val_dataset)
-        subset_val_size = int(total_val_size * subset_size)
-        val_dataset = torch.utils.data.Subset(val_dataset, range(subset_val_size))
-
-
     return train_dataset, val_dataset
-    # return val_dataset
 
 class FidRealDeepFashion(Dataset):
     def __init__(self, root_dir, test_img_size):

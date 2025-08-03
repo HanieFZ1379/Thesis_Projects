@@ -14,6 +14,9 @@ import multiprocessing as mp
 from functools import partial
 from insightface.app import FaceAnalysis
 
+from diffusers import AutoencoderKL, DDIMScheduler
+from torchvision import transforms
+
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG',
     '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP', ]
@@ -24,14 +27,14 @@ def is_image_file(filename):
 
 def make_dataset(dir, save_dir):
     assert os.path.isdir(dir), '%s is not a valid directory' % dir
-
+# total train images:  48674
     train_root = save_dir + '/train'
     if not os.path.exists(train_root):
         os.mkdir(train_root)
 
-    test_root = save_dir + '/test'
-    if not os.path.exists(test_root):
-        os.mkdir(test_root)
+    # test_root = save_dir + '/test'
+    # if not os.path.exists(test_root):
+    #     os.mkdir(test_root)
 
     train_images = []
     train_f = open('./data/train.lst', 'r')
@@ -40,15 +43,15 @@ def make_dataset(dir, save_dir):
         if lines.endswith('.jpg'):
             train_images.append(lines)
 
-    test_images = []
-    test_f = open('./data/test.lst', 'r')
-    for lines in test_f:
-        lines = lines.strip()
-        if lines.endswith('.jpg'):
-            test_images.append(lines)
+    # test_images = []
+    # test_f = open('./data/test.lst', 'r')
+    # for lines in test_f:
+    #     lines = lines.strip()
+    #     if lines.endswith('.jpg'):
+    #         test_images.append(lines)
 
     count_train = 0
-    count_test = 0
+    # count_test = 0
     for root, _, fnames in sorted(os.walk(dir)):
         if "MEN" not in root:
             continue
@@ -63,11 +66,11 @@ def make_dataset(dir, save_dir):
                 if path_names in train_images:
                     shutil.copy(path, os.path.join(train_root, path_names))
                     count_train += 1
-                if path_names in test_images:
-                    shutil.copy(path, os.path.join(test_root, path_names))
-                    count_test += 1
+                # if path_names in test_images:
+                #     shutil.copy(path, os.path.join(test_root, path_names))
+                #     count_test += 1
     print("total train images: ", count_train)
-    print("total test images: ", count_test)
+    # print("total test images: ", count_test)
 
 def prepare_pose(image_path, densepose_save_path, config_path, model_path):
     if not os.path.exists(densepose_save_path):
@@ -132,8 +135,7 @@ def prepare_face(image_path, face_save_path, super_resolution=False):
             np.save(save_name, face_emb)
 
 if __name__ == "__main__":
-    # base_dataset_dir = './dataset/fashion/'
-    base_dataset_dir = '/kaggle/input/dataset-deepfashion/fashion'
+    base_dataset_dir = './dataset/fashion/'
     
     # split the train and test dataset.
     make_dataset('./dataset/fashion/', './dataset/fashion/')
@@ -141,23 +143,23 @@ if __name__ == "__main__":
     
     # use Densepose to estimate the poses.
     densepose_train_dir = './dataset/fashion/train_densepose/'
-    densepose_test_dir = './dataset/fashion/test_densepose/'
+    # densepose_test_dir = './dataset/fashion/test_densepose/'
     densepose_config_path = "./src/DensePose/config/densepose_rcnn_R_101_FPN_DL_s1x.yaml"
     densepose_model_path = "./pretrained_weights/model_final_844d15.pkl"
     prepare_pose(base_dataset_dir + 'train/', densepose_train_dir, \
          densepose_config_path, densepose_model_path)
-    prepare_pose(base_dataset_dir + 'test/', densepose_test_dir, \
-        densepose_config_path, densepose_model_path)
+    # prepare_pose(base_dataset_dir + 'test/', densepose_test_dir, \
+    #     densepose_config_path, densepose_model_path)
     
     
     # parallel process the images to get the texture map.
     all_names = []
     image_names_train = os.listdir(base_dataset_dir + 'train/')
-    image_names_test = os.listdir(base_dataset_dir + 'test/')
+    # image_names_test = os.listdir(base_dataset_dir + 'test/')
     all_names.extend(list(base_dataset_dir + 'train/' + name for name in image_names_train))
-    all_names.extend(list(base_dataset_dir + 'test/'+ name for name in image_names_test))
+    # all_names.extend(list(base_dataset_dir + 'test/'+ name for name in image_names_test))
     os.makedirs(base_dataset_dir + 'train_texture/', exist_ok=True)
-    os.makedirs(base_dataset_dir + 'test_texture/', exist_ok=True)
+    # os.makedirs(base_dataset_dir + 'test_texture/', exist_ok=True)
     
     with Pool(processes=8, maxtasksperchild=1) as pool:
         for _ in tqdm(
@@ -173,4 +175,12 @@ if __name__ == "__main__":
     
     # use arcface to estimate the faces.
     prepare_face(base_dataset_dir + 'train/', base_dataset_dir + 'train_face/')
-    prepare_face(base_dataset_dir + 'test/', base_dataset_dir + 'test_face/')
+    # prepare_face(base_dataset_dir + 'test/', base_dataset_dir + 'test_face/')
+
+    weight_dtype = torch.float16
+    device = 'cuda'
+    # use vae to extract the embedding of texture map
+    vae_model_path = './pretrained_weights/sd-vae-ft-mse'
+    vae = AutoencoderKL.from_pretrained(vae_model_path).to(
+        device, dtype=weight_dtype)
+
