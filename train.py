@@ -103,15 +103,13 @@ class InstanceNet(nn.Module):
             #     encoder_hidden_states=clip_image_embeds,
             #     return_dict=False,
             # )
-            main_device = "cuda:0"
-            aux_device = "cuda:1"
 
             self.reference_unet(
-                    ref_image_latents.to(aux_device),
-                    timesteps.to(aux_device),
-                    encoder_hidden_states=clip_image_embeds.to(aux_device)
-                ).to(main_device)
-
+                    ref_image_latents.to(self.reference_unet.device),
+                    timesteps.to(self.reference_unet.device),
+                    encoder_hidden_states=clip_image_embeds.to(self.reference_unet.device)
+                )
+            self.reference_control_writer = self.reference_control_writer.to(self.denoising_unet.device)
             self.reference_control_reader.update(self.reference_control_writer)
         
         face_tokens = self.image_proj_model(face_pretrained_embeds)
